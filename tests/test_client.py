@@ -173,6 +173,74 @@ class TestMaskedEmails:
         assert result.email == "new123@fastmail.com"
 
 
+class TestEmailState:
+    def test_get_email_state(self, client, mock_jmapc_client):
+        mock_response = MagicMock()
+        mock_response.state = "s123456"
+        mock_response.data = []
+        mock_jmapc_client.request.return_value = mock_response
+
+        result = client.get_email_state()
+        assert result == "s123456"
+
+    def test_get_email_state_none(self, client, mock_jmapc_client):
+        mock_response = MagicMock()
+        mock_response.state = None
+        mock_response.data = []
+        mock_jmapc_client.request.return_value = mock_response
+
+        from fastmail_blade_mcp.client import FastmailError
+
+        with pytest.raises(FastmailError, match="state"):
+            client.get_email_state()
+
+
+class TestEmailChanges:
+    def test_get_email_changes(self, client, mock_jmapc_client):
+        mock_response = MagicMock()
+        mock_response.old_state = "s100"
+        mock_response.new_state = "s200"
+        mock_response.has_more_changes = False
+        mock_response.created = ["M001", "M002"]
+        mock_response.updated = ["M003"]
+        mock_response.destroyed = []
+        mock_jmapc_client.request.return_value = mock_response
+
+        result = client.get_email_changes("s100")
+        assert result["old_state"] == "s100"
+        assert result["new_state"] == "s200"
+        assert result["has_more_changes"] is False
+        assert result["created"] == ["M001", "M002"]
+        assert result["updated"] == ["M003"]
+        assert result["destroyed"] == []
+
+    def test_get_email_changes_with_max(self, client, mock_jmapc_client):
+        mock_response = MagicMock()
+        mock_response.old_state = "s100"
+        mock_response.new_state = "s150"
+        mock_response.has_more_changes = True
+        mock_response.created = ["M001"]
+        mock_response.updated = []
+        mock_response.destroyed = []
+        mock_jmapc_client.request.return_value = mock_response
+
+        result = client.get_email_changes("s100", max_changes=10)
+        assert result["has_more_changes"] is True
+
+    def test_cannot_calculate_changes(self, client, mock_jmapc_client):
+        from jmapc import ClientError
+
+        mock_jmapc_client.request.side_effect = ClientError(
+            "cannotCalculateChanges",
+            result=[],
+        )
+
+        from fastmail_blade_mcp.client import CannotCalculateChangesError
+
+        with pytest.raises(CannotCalculateChangesError):
+            client.get_email_changes("ancient_state")
+
+
 class TestErrorClassification:
     def test_auth_error(self):
         from fastmail_blade_mcp.client import AuthError, _classify_error
@@ -197,6 +265,12 @@ class TestErrorClassification:
 
         err = _classify_error("Connection timeout")
         assert isinstance(err, ConnectionError)
+
+    def test_cannot_calculate_changes_error(self):
+        from fastmail_blade_mcp.client import CannotCalculateChangesError, _classify_error
+
+        err = _classify_error("cannotCalculateChanges: state too old")
+        assert isinstance(err, CannotCalculateChangesError)
 
     def test_generic_error(self):
         from fastmail_blade_mcp.client import FastmailError, _classify_error

@@ -14,8 +14,9 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
 
-from fastmail_blade_mcp.client import FastmailClient, FastmailError
+from fastmail_blade_mcp.client import CannotCalculateChangesError, FastmailClient, FastmailError
 from fastmail_blade_mcp.formatters import (
+    format_changes,
     format_email_body,
     format_email_list,
     format_identity_list,
@@ -244,6 +245,51 @@ async def mail_snippets(
         return _error_response(e)
     except Exception as e:
         logger.exception("Unexpected error in mail_snippets")
+        return f"Error: {e}"
+
+
+# ===========================================================================
+# EMAIL STATE & CHANGES TOOLS
+# ===========================================================================
+
+
+@mcp.tool
+async def mail_state() -> str:
+    """Get the current JMAP Email state string.
+
+    Returns a state token that can be passed to ``mail_changes`` to get
+    incremental updates. Use this to initialise a watermark for change tracking.
+    """
+    try:
+        state = await _run(_get_client().get_email_state)
+        return f"Email state: {state}"
+    except FastmailError as e:
+        return _error_response(e)
+    except Exception as e:
+        logger.exception("Unexpected error in mail_state")
+        return f"Error: {e}"
+
+
+@mcp.tool
+async def mail_changes(
+    since_state: Annotated[str, Field(description="JMAP state string from a previous mail_state or mail_changes call")],
+    max_changes: Annotated[int, Field(description="Max changes to return (default: 100)")] = 100,
+) -> str:
+    """Get email changes since a previous state. Returns created/updated/destroyed IDs.
+
+    Use ``mail_state`` to get the initial state, then call this with that state
+    to find new/changed emails. If the state is too old (~30 days), returns an
+    error — fall back to ``mail_search`` with a date filter.
+    """
+    try:
+        changes = await _run(_get_client().get_email_changes, since_state, max_changes)
+        return format_changes(changes)
+    except CannotCalculateChangesError:
+        return "Error: State too old — cannot calculate changes. Fall back to mail_search with after= date filter."
+    except FastmailError as e:
+        return _error_response(e)
+    except Exception as e:
+        logger.exception("Unexpected error in mail_changes")
         return f"Error: {e}"
 
 

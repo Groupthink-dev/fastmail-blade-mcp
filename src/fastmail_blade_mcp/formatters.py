@@ -387,6 +387,40 @@ def format_identity_list(identities: list[Any]) -> str:
     return "\n".join(lines)
 
 
+def format_changes(changes: dict[str, Any]) -> str:
+    """Format email changes response.
+
+    Example::
+
+        State: s123 → s456
+        Has more: false
+        Created (3): M001, M002, M003
+        Updated (1): M004
+        Destroyed (0):
+    """
+    created = changes.get("created", [])
+    updated = changes.get("updated", [])
+    destroyed = changes.get("destroyed", [])
+
+    def _id_list(ids: list[str], cap: int = 20) -> str:
+        if not ids:
+            return ""
+        shown = ids[:cap]
+        result = ", ".join(shown)
+        if len(ids) > cap:
+            result += f" … +{len(ids) - cap} more"
+        return result
+
+    lines = [
+        f"State: {changes.get('old_state', '?')} → {changes.get('new_state', '?')}",
+        f"Has more: {str(changes.get('has_more_changes', False)).lower()}",
+        f"Created ({len(created)}): {_id_list(created)}",
+        f"Updated ({len(updated)}): {_id_list(updated)}",
+        f"Destroyed ({len(destroyed)}): {_id_list(destroyed)}",
+    ]
+    return "\n".join(lines)
+
+
 def format_push_events(events: list[dict[str, Any]]) -> str:
     """Format push notification events."""
     if not events:

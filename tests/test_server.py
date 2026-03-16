@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from fastmail_blade_mcp.client import FastmailError, NotFoundError
+from fastmail_blade_mcp.client import CannotCalculateChangesError, FastmailError, NotFoundError
 
 
 @pytest.fixture
@@ -116,6 +116,70 @@ class TestMailThreads:
 
         mock_client.get_thread.side_effect = NotFoundError("Thread not found")
         result = await mail_threads(id="nonexistent")
+        assert "Error:" in result
+
+
+# ===========================================================================
+# EMAIL STATE & CHANGES TOOLS
+# ===========================================================================
+
+
+class TestMailState:
+    async def test_success(self, mock_client):
+        from fastmail_blade_mcp.server import mail_state
+
+        mock_client.get_email_state.return_value = "s123456"
+        result = await mail_state()
+        assert "s123456" in result
+        assert "Email state:" in result
+
+    async def test_error(self, mock_client):
+        from fastmail_blade_mcp.server import mail_state
+
+        mock_client.get_email_state.side_effect = FastmailError("Connection failed")
+        result = await mail_state()
+        assert "Error:" in result
+
+
+class TestMailChanges:
+    async def test_success(self, mock_client):
+        from fastmail_blade_mcp.server import mail_changes
+
+        mock_client.get_email_changes.return_value = {
+            "old_state": "s100",
+            "new_state": "s200",
+            "has_more_changes": False,
+            "created": ["M001", "M002"],
+            "updated": ["M003"],
+            "destroyed": [],
+        }
+        result = await mail_changes(since_state="s100")
+        assert "s100" in result
+        assert "s200" in result
+        assert "M001" in result
+        assert "Created (2)" in result
+        assert "Updated (1)" in result
+
+    async def test_cannot_calculate_changes(self, mock_client):
+        from fastmail_blade_mcp.server import mail_changes
+
+        mock_client.get_email_changes.side_effect = CannotCalculateChangesError("State too old")
+        result = await mail_changes(since_state="ancient_state")
+        assert "State too old" in result
+        assert "mail_search" in result
+
+    async def test_error(self, mock_client):
+        from fastmail_blade_mcp.server import mail_changes
+
+        mock_client.get_email_changes.side_effect = FastmailError("Connection failed")
+        result = await mail_changes(since_state="s100")
+        assert "Error:" in result
+
+    async def test_unexpected_error(self, mock_client):
+        from fastmail_blade_mcp.server import mail_changes
+
+        mock_client.get_email_changes.side_effect = RuntimeError("Unexpected")
+        result = await mail_changes(since_state="s100")
         assert "Error:" in result
 
 

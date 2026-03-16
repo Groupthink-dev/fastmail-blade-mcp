@@ -11,6 +11,8 @@ permissions:
     - mail_search
     - mail_threads
     - mail_snippets
+    - mail_state
+    - mail_changes
     - masked_list
     - push_subscribe
     - push_status
@@ -61,6 +63,10 @@ fastmail_info                                 → Health check
 - **mail_threads** — Chronological conversation view. Use `id=` (thread ID) from search.
 - **mail_snippets** — Search with highlighted context excerpts. Best for content search.
 
+### Email State & Changes
+- **mail_state** — Current JMAP Email state string. Use to initialise change tracking.
+- **mail_changes** — Incremental changes since a state. Returns created/updated/destroyed IDs. Falls back to error if state is >30 days old.
+
 ### Email Write (requires FASTMAIL_WRITE_ENABLED=true)
 - **mail_send** — Send new email. Comma-separated recipients. Plain text body.
 - **mail_reply** — Reply to email. Preserves threading. `reply_all=true` for all recipients.
@@ -107,6 +113,15 @@ fastmail_info                                 → Health check
 4. masked_update id="me-001" state="disabled" → Disable old alias
 ```
 
+### Incremental Sync (State Watermark)
+```
+1. mail_state                                → Get current state string
+   (persist state for next run)
+2. mail_changes since_state="s123"           → Get created/updated/destroyed IDs
+3. mail_read id="M001"                       → Read new emails by ID
+   (if "State too old" error, fall back to mail_search with after= filter)
+```
+
 ### Monitor for New Mail
 ```
 1. push_status                                → Check availability
@@ -130,6 +145,8 @@ fastmail_info                                 → Health check
 | `has_keyword` | Must have keyword | `has_keyword="$flagged"` |
 | `not_keyword` | Must not have keyword | `not_keyword="$seen"` |
 | `limit` | Max results (default: 20) | `limit=10` |
+| `since_state` | JMAP state for changes | `since_state="s123"` |
+| `max_changes` | Max changes (default: 100) | `max_changes=50` |
 | `state` | Masked email state | `state="enabled"` |
 | `for_domain` | Masked email domain | `for_domain="netflix.com"` |
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 from jmapc import Email
 
 from fastmail_blade_mcp.formatters import (
+    format_changes,
     format_email_body,
     format_email_list,
     format_identity_list,
@@ -193,6 +194,69 @@ class TestFormatIdentityList:
 # ===========================================================================
 # format_push_events / format_push_status
 # ===========================================================================
+
+
+# ===========================================================================
+# format_changes
+# ===========================================================================
+
+
+class TestFormatChanges:
+    def test_basic(self):
+        changes = {
+            "old_state": "s100",
+            "new_state": "s200",
+            "has_more_changes": False,
+            "created": ["M001", "M002", "M003"],
+            "updated": ["M004"],
+            "destroyed": [],
+        }
+        result = format_changes(changes)
+        assert "s100 → s200" in result
+        assert "Has more: false" in result
+        assert "Created (3)" in result
+        assert "M001, M002, M003" in result
+        assert "Updated (1)" in result
+        assert "Destroyed (0)" in result
+
+    def test_empty_changes(self):
+        changes = {
+            "old_state": "s100",
+            "new_state": "s100",
+            "has_more_changes": False,
+            "created": [],
+            "updated": [],
+            "destroyed": [],
+        }
+        result = format_changes(changes)
+        assert "Created (0):" in result
+        assert "Updated (0):" in result
+
+    def test_has_more(self):
+        changes = {
+            "old_state": "s100",
+            "new_state": "s150",
+            "has_more_changes": True,
+            "created": ["M001"],
+            "updated": [],
+            "destroyed": [],
+        }
+        result = format_changes(changes)
+        assert "Has more: true" in result
+
+    def test_truncation_at_20(self):
+        ids = [f"M{i:03d}" for i in range(25)]
+        changes = {
+            "old_state": "s1",
+            "new_state": "s2",
+            "has_more_changes": False,
+            "created": ids,
+            "updated": [],
+            "destroyed": [],
+        }
+        result = format_changes(changes)
+        assert "Created (25)" in result
+        assert "+5 more" in result
 
 
 class TestFormatPushEvents:

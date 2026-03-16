@@ -35,6 +35,7 @@ from jmapc.fastmail import (
     MaskedEmailState,
 )
 from jmapc.methods import (
+    EmailChanges,
     EmailGet,
     EmailQuery,
     EmailSet,
@@ -89,11 +90,16 @@ class WriteDisabledError(FastmailError):
     """Write operation attempted but FASTMAIL_WRITE_ENABLED is not true."""
 
 
+class CannotCalculateChangesError(FastmailError):
+    """JMAP state too old — server cannot compute changes since the given state."""
+
+
 # ---------------------------------------------------------------------------
 # Error classification
 # ---------------------------------------------------------------------------
 
 _ERROR_PATTERNS: list[tuple[str, type[FastmailError]]] = [
+    ("cannotcalculatechanges", CannotCalculateChangesError),
     ("unauthorized", AuthError),
     ("authentication", AuthError),
     ("invalid credentials", AuthError),
@@ -336,6 +342,42 @@ class FastmailClient:
         )
         emails = list(get_response.data) if get_response.data else []
         return snippets, emails, total
+
+    # -------------------------------------------------------------------
+    # Email State & Changes
+    # -------------------------------------------------------------------
+
+    def get_email_state(self) -> str:
+        """Get the current JMAP Email state string without fetching emails."""
+        response = self._request(EmailGet(ids=[]))
+        state: str | None = response.state
+        if state is None:
+            raise FastmailError("Server did not return Email state")
+        return state
+
+    def get_email_changes(self, since_state: str, max_changes: int = 100) -> dict[str, Any]:
+        """Get email changes since a previous state.
+
+        Returns a dict with old_state, new_state, has_more_changes,
+        created/updated/destroyed ID lists.
+
+        Raises ``CannotCalculateChangesError`` if the state is too old
+        (typically >30 days on Fastmail).
+        """
+        response = self._request(
+            EmailChanges(
+                since_state=since_state,
+                max_changes=max_changes,
+            )
+        )
+        return {
+            "old_state": response.old_state,
+            "new_state": response.new_state,
+            "has_more_changes": response.has_more_changes,
+            "created": response.created,
+            "updated": response.updated,
+            "destroyed": response.destroyed,
+        }
 
     # -------------------------------------------------------------------
     # Email Write
