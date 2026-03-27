@@ -1,0 +1,46 @@
+name: fastmail-blade-mcp
+version: "0.1.0"
+description: "Fastmail email operations via JMAP — search, read, send, manage, masked email, push notifications"
+author: piersdd
+licence: MIT
+tier: certified
+homepage: https://github.com/piersdd/fastmail-blade-mcp
+contract: email-v1
+
+services:
+  email:
+    search: mail_search
+    read: mail_read
+    mailboxes: mail_mailboxes
+    snippets: mail_snippets
+    threads: mail_threads
+    state: mail_state
+    changes: mail_changes
+    bulk: mail_bulk
+    send: mail_send
+    reply: mail_reply
+    flag: mail_flag
+    move: mail_move
+    delete: mail_delete
+
+install:
+  runtime: uv
+  package: fastmail-blade-mcp
+  command: fastmail-blade-mcp
+
+env:
+  - name: FASTMAIL_API_TOKEN
+    description: "Fastmail API token (Settings → Privacy & Security → API tokens)"
+    secret: true
+  - name: FASTMAIL_WRITE_ENABLED
+    description: "Enable write operations (send, reply, flag, move, delete)"
+    default: "false"
+
+requires:
+  sidereal: ">=0.3.0"
+
+conformance:
+  required: "3/3"
+  recommended: "2/2"
+  optional: "3/3"
+  last_tested: "2026-03-25"
