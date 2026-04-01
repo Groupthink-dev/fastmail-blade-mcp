@@ -1,8 +1,19 @@
 # Fastmail Blade MCP
 
-Fastmail JMAP MCP Server — email, masked email, and push notifications. Each MCP tool is a "blade" — the sharpest instrument for its mail operation.
+The only [MCP](https://modelcontextprotocol.io) server built on Fastmail's native JMAP protocol — email, masked email, and push notifications with token-efficient output.
 
 Wraps the [Fastmail JMAP API](https://www.fastmail.com/dev/) via [jmapc](https://github.com/smkent/jmapc) as an MCP server using [FastMCP 2.0](https://github.com/jlowin/fastmcp).
+
+## Why Fastmail Blade?
+
+Every other email MCP uses IMAP — a 1986 protocol that was never designed for programmatic access. Fastmail Blade uses **JMAP**, Fastmail's native protocol:
+
+- **JMAP-native** — stateless, JSON-based, supports batch operations natively. No IDLE hacks, no MIME parsing, no connection state management.
+- **Masked Email** — full CRUD for Fastmail's privacy aliases (create, list, enable/disable). No IMAP MCP can touch this — it's a Fastmail extension that only exists in JMAP.
+- **Push notifications** — real-time EventSource via JMAP Push. Know when mail arrives without polling.
+- **Incremental sync** — JMAP state tokens for delta changes. Get only what's new since your last check, not the entire mailbox.
+- **Token-efficient** — concise pipe-delimited output, null-field omission. IMAP MCPs dump raw headers and MIME multipart.
+- **Write-safe** — env-gated writes, batch limits (50 max), credential scrubbing on all error paths.
 
 ## Features
 
@@ -70,6 +81,13 @@ claude mcp add fastmail-blade -- uv run --directory ~/src/fastmail-blade-mcp fas
 | `mail_threads` | Chronological conversation view |
 | `mail_snippets` | Search with highlighted context excerpts |
 
+### Email State & Sync (2)
+
+| Tool | Description |
+|------|-------------|
+| `mail_state` | Get JMAP state token for change tracking |
+| `mail_changes` | Incremental changes since a previous state token |
+
 ### Email Write (4, gated)
 
 | Tool | Description |
@@ -100,13 +118,6 @@ claude mcp add fastmail-blade -- uv run --directory ~/src/fastmail-blade-mcp fas
 |------|-------------|
 | `push_subscribe` | Listen for state changes via EventSource |
 | `push_status` | Check EventSource availability |
-
-### Meta (2)
-
-| Tool | Description |
-|------|-------------|
-| `fastmail_info` | Account info, capabilities (health check) |
-| `fastmail_identities` | Sender identities (ID, name, email) |
 
 ## Security
 
@@ -140,6 +151,19 @@ uv run fastmail-blade-mcp
 | `FASTMAIL_MCP_HOST` | `127.0.0.1` | HTTP bind host |
 | `FASTMAIL_MCP_PORT` | `8767` | HTTP bind port |
 | `FASTMAIL_MCP_API_TOKEN` | (none) | Bearer token for HTTP auth |
+
+## Architecture
+
+```
+src/fastmail_blade_mcp/
+├── server.py       — FastMCP 2.0 server, 18 @mcp.tool decorators
+├── client.py       — JMAP client via jmapc, masked email, push subscriptions
+├── formatters.py   — Token-efficient output (pipe-delimited, null omission)
+├── models.py       — Config, write-gate, batch limits
+└── auth.py         — Bearer token middleware for HTTP transport
+```
+
+Built with [FastMCP 2.0](https://github.com/jlowin/fastmcp) and [jmapc](https://github.com/smkent/jmapc).
 
 ## Development
 
