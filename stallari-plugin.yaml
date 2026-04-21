@@ -1,5 +1,5 @@
 name: fastmail-blade-mcp
-version: "0.1.0"
+version: "0.1.1"
 description: "Fastmail email operations via JMAP — search, read, send, manage, masked email, push notifications"
 author: piersdd
 licence: MIT
