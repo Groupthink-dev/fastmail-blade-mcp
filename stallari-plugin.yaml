@@ -39,6 +39,8 @@ env:
 requires:
   sidereal: ">=0.3.0"
 
+  adapter_contracts:
+    - "email >= 1.0"
 conformance:
   required: "3/3"
   recommended: "2/2"
