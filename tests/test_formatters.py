@@ -298,3 +298,136 @@ class TestTruncateBody:
         assert len(result) < 60_000
         assert "truncated" in result
         assert "10000 more" in result
+
+
+# ===========================================================================
+# DD-338 Phase C — Track 3 `_meta` envelope helper
+# ===========================================================================
+
+
+class TestFormatMetaEnvelope:
+    """Coverage of the `_format_meta_envelope` + `_append_meta` helpers."""
+
+    def test_required_fields_present(self):
+        import json
+
+        from fastmail_blade_mcp.formatters import _format_meta_envelope
+
+        line = _format_meta_envelope(matched_total=42, returned=10, filtered_by=["scope=work"], latency_ms=234)
+        assert line.startswith("_meta: ")
+        data = json.loads(line[len("_meta: ") :])
+        assert data == {
+            "matched_total": 42,
+            "returned": 10,
+            "filtered_by": ["scope=work"],
+            "latency_ms": 234,
+        }
+
+    def test_filtered_by_sorted_alphabetically(self):
+        import json
+
+        from fastmail_blade_mcp.formatters import _format_meta_envelope
+
+        line = _format_meta_envelope(
+            matched_total=1,
+            returned=1,
+            filtered_by=["limit=20", "from_addr=alice@example.com", "subject=foo"],
+            latency_ms=10,
+        )
+        data = json.loads(line[len("_meta: ") :])
+        assert data["filtered_by"] == [
+            "from_addr=alice@example.com",
+            "limit=20",
+            "subject=foo",
+        ]
+
+    def test_empty_redactions_omitted(self):
+        import json
+
+        from fastmail_blade_mcp.formatters import _format_meta_envelope
+
+        line = _format_meta_envelope(matched_total=1, returned=1, filtered_by=[], latency_ms=1, redactions=[])
+        data = json.loads(line[len("_meta: ") :])
+        assert "redactions" not in data
+
+    def test_non_empty_redactions_kept(self):
+        import json
+
+        from fastmail_blade_mcp.formatters import _format_meta_envelope
+
+        line = _format_meta_envelope(
+            matched_total=1,
+            returned=1,
+            filtered_by=[],
+            latency_ms=1,
+            redactions=["more_changes_available"],
+        )
+        data = json.loads(line[len("_meta: ") :])
+        assert data["redactions"] == ["more_changes_available"]
+
+    def test_next_cursor_none_omitted(self):
+        import json
+
+        from fastmail_blade_mcp.formatters import _format_meta_envelope
+
+        line = _format_meta_envelope(matched_total=1, returned=1, filtered_by=[], latency_ms=1, next_cursor=None)
+        data = json.loads(line[len("_meta: ") :])
+        assert "next_cursor" not in data
+
+    def test_next_cursor_empty_string_kept(self):
+        import json
+
+        from fastmail_blade_mcp.formatters import _format_meta_envelope
+
+        line = _format_meta_envelope(matched_total=1, returned=1, filtered_by=[], latency_ms=1, next_cursor="")
+        data = json.loads(line[len("_meta: ") :])
+        assert data["next_cursor"] == ""
+
+    def test_empty_error_notes_omitted(self):
+        import json
+
+        from fastmail_blade_mcp.formatters import _format_meta_envelope
+
+        line = _format_meta_envelope(matched_total=1, returned=1, filtered_by=[], latency_ms=1, error_notes=[])
+        data = json.loads(line[len("_meta: ") :])
+        assert "error_notes" not in data
+
+    def test_single_line_no_embedded_newlines(self):
+        from fastmail_blade_mcp.formatters import _format_meta_envelope
+
+        line = _format_meta_envelope(
+            matched_total=1,
+            returned=1,
+            filtered_by=["a=b"],
+            latency_ms=1,
+            redactions=["r1", "r2"],
+            error_notes=["n1"],
+        )
+        assert "\n" not in line
+
+    def test_append_meta_uses_double_newline_separator(self):
+        from fastmail_blade_mcp.formatters import _append_meta
+
+        result = _append_meta("payload", "_meta: {}")
+        assert result == "payload\n\n_meta: {}"
+
+    def test_roundtrip_parse_after_strip_prefix(self):
+        import json
+
+        from fastmail_blade_mcp.formatters import _format_meta_envelope
+
+        line = _format_meta_envelope(
+            matched_total=100,
+            returned=20,
+            filtered_by=["limit=20", "from_addr=x@y.z"],
+            latency_ms=50,
+            redactions=["partial"],
+            next_cursor="cursor-abc",
+        )
+        data = json.loads(line[len("_meta: ") :])
+        assert data["matched_total"] == 100
+        assert data["returned"] == 20
+        assert data["filtered_by"] == ["from_addr=x@y.z", "limit=20"]
+        assert data["latency_ms"] == 50
+        assert data["redactions"] == ["partial"]
+        assert data["next_cursor"] == "cursor-abc"
