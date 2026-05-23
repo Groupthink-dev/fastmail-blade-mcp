@@ -106,6 +106,8 @@ async def fastmail_identities() -> str:
     """
     try:
         result = await _run(_get_client().get_identities)
+        # DD-338 Phase B.1.b — stable sort: id asc.
+        result = sorted(result, key=lambda i: getattr(i, "id", "") or "")
         return format_identity_list(result)
     except FastmailError as e:
         return _error_response(e)
@@ -127,6 +129,18 @@ async def mail_mailboxes() -> str:
     """
     try:
         result = await _run(_get_client().get_mailboxes)
+        # DD-338 Phase B.1.b — stable sort: sort_order asc (None at tail via 9999
+        # sentinel), then name asc, then id asc tie-break. JMAP Mailbox.sort_order
+        # default per jmapc.models.mailbox.Mailbox is 0; None placement is
+        # defensive against future spec drift.
+        result = sorted(
+            result,
+            key=lambda m: (
+                getattr(m, "sort_order", None) if getattr(m, "sort_order", None) is not None else 9999,
+                getattr(m, "name", "") or "",
+                getattr(m, "id", "") or "",
+            ),
+        )
         return format_mailbox_list(result)
     except FastmailError as e:
         return _error_response(e)
