@@ -17,8 +17,7 @@ from pydantic import Field
 
 from fastmail_blade_mcp.client import CannotCalculateChangesError, FastmailClient, FastmailError
 from fastmail_blade_mcp.formatters import (
-    _append_meta,
-    _format_meta_envelope,
+    append_meta,
     format_changes,
     format_email_body,
     format_email_list,
@@ -30,6 +29,7 @@ from fastmail_blade_mcp.formatters import (
     format_search_snippets,
     format_session_info,
     format_thread,
+    meta_envelope,
 )
 from fastmail_blade_mcp.models import DEFAULT_LIMIT, MAX_BATCH_SIZE, require_write
 
@@ -230,13 +230,13 @@ async def mail_search(
             filtered_by.append(f"not_keyword={not_keyword}")
         filtered_by.append(f"limit={limit}")
 
-        meta = _format_meta_envelope(
+        meta = meta_envelope(
             matched_total=total if total is not None else len(emails),
             returned=len(emails),
             filtered_by=filtered_by,
             latency_ms=latency_ms,
         )
-        return _append_meta(payload, meta)
+        return append_meta(payload, meta)
     except FastmailError as e:
         return _error_response(e)
     except Exception as e:
@@ -260,13 +260,13 @@ async def mail_threads(
         payload = format_thread(emails)
 
         # DD-338 Phase C — Track 3 _meta envelope.
-        meta = _format_meta_envelope(
+        meta = meta_envelope(
             matched_total=len(emails),
             returned=len(emails),
             filtered_by=[f"thread_id={id}"],
             latency_ms=latency_ms,
         )
-        return _append_meta(payload, meta)
+        return append_meta(payload, meta)
     except FastmailError as e:
         return _error_response(e)
     except Exception as e:
@@ -320,13 +320,13 @@ async def mail_snippets(
             filtered_by.append(f"in_mailbox={in_mailbox}")
         filtered_by.append(f"limit={limit}")
 
-        meta = _format_meta_envelope(
+        meta = meta_envelope(
             matched_total=total if total is not None else len(snippets),
             returned=len(snippets),
             filtered_by=filtered_by,
             latency_ms=latency_ms,
         )
-        return _append_meta(payload, meta)
+        return append_meta(payload, meta)
     except FastmailError as e:
         return _error_response(e)
     except Exception as e:
@@ -393,7 +393,7 @@ async def mail_changes(
         new_state = changes.get("new_state")
         next_cursor = new_state if new_state else None
 
-        meta = _format_meta_envelope(
+        meta = meta_envelope(
             matched_total=aggregate,
             returned=aggregate,
             filtered_by=filtered_by,
@@ -401,7 +401,7 @@ async def mail_changes(
             redactions=redactions or None,
             next_cursor=next_cursor,
         )
-        return _append_meta(payload, meta)
+        return append_meta(payload, meta)
     except CannotCalculateChangesError:
         return "Error: State too old — cannot calculate changes. Fall back to mail_search with after= date filter."
     except FastmailError as e:
@@ -624,13 +624,13 @@ async def masked_list(
         matched_total = len(masks)
         returned = min(matched_total, limit) if limit and limit > 0 else matched_total
 
-        meta = _format_meta_envelope(
+        meta = meta_envelope(
             matched_total=matched_total,
             returned=returned,
             filtered_by=filtered_by,
             latency_ms=latency_ms,
         )
-        return _append_meta(payload, meta)
+        return append_meta(payload, meta)
     except FastmailError as e:
         return _error_response(e)
     except Exception as e:

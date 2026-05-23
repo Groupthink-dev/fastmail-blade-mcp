@@ -306,29 +306,34 @@ class TestTruncateBody:
 
 
 class TestFormatMetaEnvelope:
-    """Coverage of the `_format_meta_envelope` + `_append_meta` helpers."""
+    """Coverage of the `meta_envelope` + `append_meta` helpers."""
 
     def test_required_fields_present(self):
         import json
 
-        from fastmail_blade_mcp.formatters import _format_meta_envelope
+        from fastmail_blade_mcp.formatters import meta_envelope
 
-        line = _format_meta_envelope(matched_total=42, returned=10, filtered_by=["scope=work"], latency_ms=234)
+        line = meta_envelope(matched_total=42, returned=10, filtered_by=["scope=work"], latency_ms=234)
         assert line.startswith("_meta: ")
         data = json.loads(line[len("_meta: ") :])
+        # DD-338 Phase E.python — canonical lib always emits `redactions` (default
+        # `[]`) and `next_cursor` (default `null`); only `error_notes` and
+        # `domain_hints` are conditionally included.
         assert data == {
             "matched_total": 42,
             "returned": 10,
             "filtered_by": ["scope=work"],
             "latency_ms": 234,
+            "redactions": [],
+            "next_cursor": None,
         }
 
     def test_filtered_by_sorted_alphabetically(self):
         import json
 
-        from fastmail_blade_mcp.formatters import _format_meta_envelope
+        from fastmail_blade_mcp.formatters import meta_envelope
 
-        line = _format_meta_envelope(
+        line = meta_envelope(
             matched_total=1,
             returned=1,
             filtered_by=["limit=20", "from_addr=alice@example.com", "subject=foo"],
@@ -341,21 +346,24 @@ class TestFormatMetaEnvelope:
             "subject=foo",
         ]
 
-    def test_empty_redactions_omitted(self):
+    def test_empty_redactions_present_as_empty_list(self):
         import json
 
-        from fastmail_blade_mcp.formatters import _format_meta_envelope
+        from fastmail_blade_mcp.formatters import meta_envelope
 
-        line = _format_meta_envelope(matched_total=1, returned=1, filtered_by=[], latency_ms=1, redactions=[])
+        # DD-338 Phase E.python — canonical lib always emits `redactions` (even
+        # when caller passes `[]` or omits the kwarg); only `error_notes` and
+        # `domain_hints` are conditionally included.
+        line = meta_envelope(matched_total=1, returned=1, filtered_by=[], latency_ms=1, redactions=[])
         data = json.loads(line[len("_meta: ") :])
-        assert "redactions" not in data
+        assert data["redactions"] == []
 
     def test_non_empty_redactions_kept(self):
         import json
 
-        from fastmail_blade_mcp.formatters import _format_meta_envelope
+        from fastmail_blade_mcp.formatters import meta_envelope
 
-        line = _format_meta_envelope(
+        line = meta_envelope(
             matched_total=1,
             returned=1,
             filtered_by=[],
@@ -365,37 +373,40 @@ class TestFormatMetaEnvelope:
         data = json.loads(line[len("_meta: ") :])
         assert data["redactions"] == ["more_changes_available"]
 
-    def test_next_cursor_none_omitted(self):
+    def test_next_cursor_none_serialised_as_null(self):
         import json
 
-        from fastmail_blade_mcp.formatters import _format_meta_envelope
+        from fastmail_blade_mcp.formatters import meta_envelope
 
-        line = _format_meta_envelope(matched_total=1, returned=1, filtered_by=[], latency_ms=1, next_cursor=None)
+        # DD-338 Phase E.python — canonical lib always emits `next_cursor` (as
+        # `null` when caller passes `None`); only `error_notes` and
+        # `domain_hints` are conditionally included.
+        line = meta_envelope(matched_total=1, returned=1, filtered_by=[], latency_ms=1, next_cursor=None)
         data = json.loads(line[len("_meta: ") :])
-        assert "next_cursor" not in data
+        assert data["next_cursor"] is None
 
     def test_next_cursor_empty_string_kept(self):
         import json
 
-        from fastmail_blade_mcp.formatters import _format_meta_envelope
+        from fastmail_blade_mcp.formatters import meta_envelope
 
-        line = _format_meta_envelope(matched_total=1, returned=1, filtered_by=[], latency_ms=1, next_cursor="")
+        line = meta_envelope(matched_total=1, returned=1, filtered_by=[], latency_ms=1, next_cursor="")
         data = json.loads(line[len("_meta: ") :])
         assert data["next_cursor"] == ""
 
     def test_empty_error_notes_omitted(self):
         import json
 
-        from fastmail_blade_mcp.formatters import _format_meta_envelope
+        from fastmail_blade_mcp.formatters import meta_envelope
 
-        line = _format_meta_envelope(matched_total=1, returned=1, filtered_by=[], latency_ms=1, error_notes=[])
+        line = meta_envelope(matched_total=1, returned=1, filtered_by=[], latency_ms=1, error_notes=[])
         data = json.loads(line[len("_meta: ") :])
         assert "error_notes" not in data
 
     def test_single_line_no_embedded_newlines(self):
-        from fastmail_blade_mcp.formatters import _format_meta_envelope
+        from fastmail_blade_mcp.formatters import meta_envelope
 
-        line = _format_meta_envelope(
+        line = meta_envelope(
             matched_total=1,
             returned=1,
             filtered_by=["a=b"],
@@ -406,17 +417,17 @@ class TestFormatMetaEnvelope:
         assert "\n" not in line
 
     def test_append_meta_uses_double_newline_separator(self):
-        from fastmail_blade_mcp.formatters import _append_meta
+        from fastmail_blade_mcp.formatters import append_meta
 
-        result = _append_meta("payload", "_meta: {}")
+        result = append_meta("payload", "_meta: {}")
         assert result == "payload\n\n_meta: {}"
 
     def test_roundtrip_parse_after_strip_prefix(self):
         import json
 
-        from fastmail_blade_mcp.formatters import _format_meta_envelope
+        from fastmail_blade_mcp.formatters import meta_envelope
 
-        line = _format_meta_envelope(
+        line = meta_envelope(
             matched_total=100,
             returned=20,
             filtered_by=["limit=20", "from_addr=x@y.z"],

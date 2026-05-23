@@ -68,9 +68,11 @@ class TestMailSearchMetaEnvelope:
         assert meta["filtered_by"] == sorted(meta["filtered_by"])
         assert isinstance(meta["latency_ms"], int)
         assert meta["latency_ms"] >= 0
-        # Empty optional fields are absent.
-        assert "redactions" not in meta
-        assert "next_cursor" not in meta
+        # DD-338 Phase E.python — canonical lib always emits `redactions` (as
+        # `[]` when empty) and `next_cursor` (as `null` when omitted); only
+        # `error_notes` and `domain_hints` are conditionally included.
+        assert meta["redactions"] == []
+        assert meta["next_cursor"] is None
 
     async def test_filtered_by_includes_all_applied_filters(self, mock_client, sample_emails):
         from fastmail_blade_mcp.server import mail_search
@@ -185,8 +187,9 @@ class TestMailChangesMetaEnvelope:
         assert "max_changes=100" in meta["filtered_by"]
         # Sorted.
         assert meta["filtered_by"] == sorted(meta["filtered_by"])
-        # has_more_changes=False -> no redactions key.
-        assert "redactions" not in meta
+        # has_more_changes=False -> redactions is empty list (DD-338 Phase
+        # E.python canonical lib always emits `redactions`).
+        assert meta["redactions"] == []
         # next_cursor surfaces new_state.
         assert meta["next_cursor"] == "s200"
 

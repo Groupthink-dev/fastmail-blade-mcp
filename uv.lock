@@ -515,13 +515,14 @@ wheels = [
 
 [[package]]
 name = "fastmail-blade-mcp"
-version = "0.3.0"
+version = "0.4.0"
 source = { editable = "." }
 dependencies = [
     { name = "fastmcp" },
     { name = "httpx" },
     { name = "jmapc" },
     { name = "pydantic" },
+    { name = "stallari-mcp-helpers" },
 ]
 
 [package.dev-dependencies]
@@ -543,6 +544,7 @@ requires-dist = [
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "jmapc", specifier = ">=0.2.23" },
     { name = "pydantic", specifier = ">=2.0.0" },
+    { name = "stallari-mcp-helpers", specifier = ">=0.1.0,<1.0.0" },
 ]
 
 [package.metadata.requires-dev]
@@ -1618,6 +1620,18 @@ dependencies = [
     { name = "six" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/cf/6c/fa601216344952be8f9a51a3f49b4274bbbc58bd395f87f67f6131726358/sseclient-0.0.27.tar.gz", hash = "sha256:b2fe534dcb33b1d3faad13d60c5a7c718e28f85987f2a034ecf5ec279918c11c", size = 7465, upload-time = "2020-09-25T02:46:41.997Z" }
+
+[[package]]
+name = "stallari-mcp-helpers"
+version = "0.1.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pyyaml" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/f4/c6/0fc259a84c5d7bde39c0bcfdaf17198a37a02125f5b76465796b375ca8db/stallari_mcp_helpers-0.1.0.tar.gz", hash = "sha256:1d6f587a38279c9eaef1975cd9ad1984e98e9b820ae8ac75c9321fd85dd15c89", size = 53315, upload-time = "2026-05-23T23:17:14.605Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/4f/e3/0e5bbbec5958b51a698f971cef7b8df7f18651579f01cd89b9dcbc96412f/stallari_mcp_helpers-0.1.0-py3-none-any.whl", hash = "sha256:a82d3615c338db4498b19c784599a3c5ff966046b25823f9b9fbdf9a802c66b9", size = 9581, upload-time = "2026-05-23T23:17:13.294Z" },
+]
 
 [[package]]
 name = "starlette"

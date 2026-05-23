@@ -8,11 +8,29 @@ Design principles:
 
 from __future__ import annotations
 
-import json
 from datetime import datetime
 from typing import Any
 
+from stallari_mcp_helpers import append_meta, meta_envelope
+
 from fastmail_blade_mcp.models import DEFAULT_LIMIT, MAX_BODY_CHARS
+
+__all__ = [
+    "append_meta",
+    "format_changes",
+    "format_email_body",
+    "format_email_list",
+    "format_identity_list",
+    "format_mailbox_list",
+    "format_masked_email_list",
+    "format_push_events",
+    "format_push_status",
+    "format_search_snippets",
+    "format_session_info",
+    "format_thread",
+    "meta_envelope",
+    "truncate_body",
+]
 
 
 def format_mailbox_list(mailboxes: list[Any]) -> str:
@@ -521,50 +539,20 @@ def _human_size(size_bytes: int | float) -> str:
 
 
 # ---------------------------------------------------------------------------
-# DD-338 Phase C — Track 3 `_meta` envelope (audit_surface: structured)
+# DD-338 Phase E.python — `_meta` envelope helpers
 # ---------------------------------------------------------------------------
-
-
-def _format_meta_envelope(
-    matched_total: int,
-    returned: int,
-    filtered_by: list[str],
-    latency_ms: int,
-    redactions: list[str] | None = None,
-    next_cursor: str | None = None,
-    error_notes: list[str] | None = None,
-) -> str:
-    r"""Build the DD-338 Track 3 ``_meta`` envelope line.
-
-    Wire shape (architect amendment 2026-05-21 — JSON tail block)::
-
-        _meta: {"matched_total": 42, "returned": 10, ...}
-
-    Single JSON line. Callers prepend ``\n\n`` via :func:`_append_meta` when
-    appending to an existing payload (assembler regex
-    ``\n\n_meta: (\{.*\})$``).
-
-    ``filtered_by`` is sorted alphabetically inside the helper to guarantee
-    byte-equal reproducibility under the N-call determinism harness. Empty
-    optional fields (``redactions=[]``, ``next_cursor=None``,
-    ``error_notes=[]``) are omitted from the emitted JSON for token economy
-    (mirrors the Gmail canonical impl).
-    """
-    meta: dict[str, Any] = {
-        "matched_total": matched_total,
-        "returned": returned,
-        "filtered_by": sorted(filtered_by),
-        "latency_ms": latency_ms,
-    }
-    if redactions:
-        meta["redactions"] = redactions
-    if next_cursor is not None:
-        meta["next_cursor"] = next_cursor
-    if error_notes:
-        meta["error_notes"] = error_notes
-    return "_meta: " + json.dumps(meta, separators=(", ", ": "))
-
-
-def _append_meta(payload: str, meta_line: str) -> str:
-    """Append a ``_meta`` envelope line to a tool payload using the canonical separator."""
-    return f"{payload}\n\n{meta_line}"
+#
+# `meta_envelope` and `append_meta` are re-exported above from
+# `stallari_mcp_helpers` (DD-338 Phase E.python lib consolidation). The
+# previous local `_format_meta_envelope` and `_append_meta` functions were
+# deleted in favour of the canonical implementation. Behavioural wire-shape
+# notes for downstream consumers:
+#
+# - `meta_envelope` returns a single ``_meta: {...}`` line with tight JSON
+#   separators ``(",", ":")``. The previous local impl emitted loose
+#   ``(", ", ": ")`` separators; the JSON payload parses identically.
+# - `filtered_by` is sorted alphabetically inside the helper for byte-equal
+#   reproducibility across N invocations (same as the previous local impl).
+# - Empty optional fields (`redactions=[]`, `next_cursor=None`,
+#   `error_notes=[]`) are omitted for token economy (same as the previous
+#   local impl).
