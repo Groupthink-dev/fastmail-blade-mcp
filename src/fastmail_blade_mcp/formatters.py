@@ -8,6 +8,7 @@ Design principles:
 
 from __future__ import annotations
 
+import json
 from datetime import datetime
 from typing import Any
 
@@ -517,3 +518,53 @@ def _human_size(size_bytes: int | float) -> str:
             return f"{size_bytes:.1f} {unit}" if unit != "B" else f"{int(size_bytes)} B"
         size_bytes /= 1024
     return f"{size_bytes:.1f} TB"
+
+
+# ---------------------------------------------------------------------------
+# DD-338 Phase C — Track 3 `_meta` envelope (audit_surface: structured)
+# ---------------------------------------------------------------------------
+
+
+def _format_meta_envelope(
+    matched_total: int,
+    returned: int,
+    filtered_by: list[str],
+    latency_ms: int,
+    redactions: list[str] | None = None,
+    next_cursor: str | None = None,
+    error_notes: list[str] | None = None,
+) -> str:
+    r"""Build the DD-338 Track 3 ``_meta`` envelope line.
+
+    Wire shape (architect amendment 2026-05-21 — JSON tail block)::
+
+        _meta: {"matched_total": 42, "returned": 10, ...}
+
+    Single JSON line. Callers prepend ``\n\n`` via :func:`_append_meta` when
+    appending to an existing payload (assembler regex
+    ``\n\n_meta: (\{.*\})$``).
+
+    ``filtered_by`` is sorted alphabetically inside the helper to guarantee
+    byte-equal reproducibility under the N-call determinism harness. Empty
+    optional fields (``redactions=[]``, ``next_cursor=None``,
+    ``error_notes=[]``) are omitted from the emitted JSON for token economy
+    (mirrors the Gmail canonical impl).
+    """
+    meta: dict[str, Any] = {
+        "matched_total": matched_total,
+        "returned": returned,
+        "filtered_by": sorted(filtered_by),
+        "latency_ms": latency_ms,
+    }
+    if redactions:
+        meta["redactions"] = redactions
+    if next_cursor is not None:
+        meta["next_cursor"] = next_cursor
+    if error_notes:
+        meta["error_notes"] = error_notes
+    return "_meta: " + json.dumps(meta, separators=(", ", ": "))
+
+
+def _append_meta(payload: str, meta_line: str) -> str:
+    """Append a ``_meta`` envelope line to a tool payload using the canonical separator."""
+    return f"{payload}\n\n{meta_line}"

@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import time
 from typing import Annotated, Any
 
 from fastmcp import FastMCP
@@ -16,6 +17,8 @@ from pydantic import Field
 
 from fastmail_blade_mcp.client import CannotCalculateChangesError, FastmailClient, FastmailError
 from fastmail_blade_mcp.formatters import (
+    _append_meta,
+    _format_meta_envelope,
     format_changes,
     format_email_body,
     format_email_list,
@@ -188,6 +191,7 @@ async def mail_search(
     At least one filter should be provided.
     """
     try:
+        t0 = time.perf_counter()
         emails, total = await _run(
             _get_client().search_emails,
             from_addr=from_addr,
@@ -201,7 +205,38 @@ async def mail_search(
             not_keyword=not_keyword,
             limit=limit,
         )
-        return format_email_list(emails, total=total, limit=limit)
+        latency_ms = int((time.perf_counter() - t0) * 1000)
+        payload = format_email_list(emails, total=total, limit=limit)
+
+        # DD-338 Phase C — Track 3 _meta envelope.
+        filtered_by: list[str] = []
+        if from_addr:
+            filtered_by.append(f"from_addr={from_addr}")
+        if to_addr:
+            filtered_by.append(f"to_addr={to_addr}")
+        if subject:
+            filtered_by.append(f"subject={subject}")
+        if body:
+            filtered_by.append(f"body={body}")
+        if after:
+            filtered_by.append(f"after={after}")
+        if before:
+            filtered_by.append(f"before={before}")
+        if in_mailbox:
+            filtered_by.append(f"in_mailbox={in_mailbox}")
+        if has_keyword:
+            filtered_by.append(f"has_keyword={has_keyword}")
+        if not_keyword:
+            filtered_by.append(f"not_keyword={not_keyword}")
+        filtered_by.append(f"limit={limit}")
+
+        meta = _format_meta_envelope(
+            matched_total=total if total is not None else len(emails),
+            returned=len(emails),
+            filtered_by=filtered_by,
+            latency_ms=latency_ms,
+        )
+        return _append_meta(payload, meta)
     except FastmailError as e:
         return _error_response(e)
     except Exception as e:
@@ -219,8 +254,19 @@ async def mail_threads(
     Thread IDs are returned by ``mail_search`` and ``mail_read``.
     """
     try:
+        t0 = time.perf_counter()
         emails = await _run(_get_client().get_thread, id)
-        return format_thread(emails)
+        latency_ms = int((time.perf_counter() - t0) * 1000)
+        payload = format_thread(emails)
+
+        # DD-338 Phase C — Track 3 _meta envelope.
+        meta = _format_meta_envelope(
+            matched_total=len(emails),
+            returned=len(emails),
+            filtered_by=[f"thread_id={id}"],
+            latency_ms=latency_ms,
+        )
+        return _append_meta(payload, meta)
     except FastmailError as e:
         return _error_response(e)
     except Exception as e:
@@ -244,6 +290,7 @@ async def mail_snippets(
     Best for finding specific content within emails.
     """
     try:
+        t0 = time.perf_counter()
         snippets, emails, total = await _run(
             _get_client().get_snippets,
             from_addr=from_addr,
@@ -254,7 +301,32 @@ async def mail_snippets(
             in_mailbox=in_mailbox,
             limit=limit,
         )
-        return format_search_snippets(snippets, emails, total=total, limit=limit)
+        latency_ms = int((time.perf_counter() - t0) * 1000)
+        payload = format_search_snippets(snippets, emails, total=total, limit=limit)
+
+        # DD-338 Phase C — Track 3 _meta envelope.
+        filtered_by: list[str] = []
+        if from_addr:
+            filtered_by.append(f"from_addr={from_addr}")
+        if subject:
+            filtered_by.append(f"subject={subject}")
+        if body:
+            filtered_by.append(f"body={body}")
+        if after:
+            filtered_by.append(f"after={after}")
+        if before:
+            filtered_by.append(f"before={before}")
+        if in_mailbox:
+            filtered_by.append(f"in_mailbox={in_mailbox}")
+        filtered_by.append(f"limit={limit}")
+
+        meta = _format_meta_envelope(
+            matched_total=total if total is not None else len(snippets),
+            returned=len(snippets),
+            filtered_by=filtered_by,
+            latency_ms=latency_ms,
+        )
+        return _append_meta(payload, meta)
     except FastmailError as e:
         return _error_response(e)
     except Exception as e:
@@ -296,8 +368,40 @@ async def mail_changes(
     error — fall back to ``mail_search`` with a date filter.
     """
     try:
+        t0 = time.perf_counter()
         changes = await _run(_get_client().get_email_changes, since_state, max_changes)
-        return format_changes(changes)
+        latency_ms = int((time.perf_counter() - t0) * 1000)
+        payload = format_changes(changes)
+
+        # DD-338 Phase C — Track 3 _meta envelope (OQ-3 Option C semantics).
+        # matched_total = returned = aggregate delta count; redactions
+        # carries ``more_changes_available`` when JMAP signals ``has_more_changes``.
+        created = changes.get("created", []) or []
+        updated = changes.get("updated", []) or []
+        destroyed = changes.get("destroyed", []) or []
+        aggregate = len(created) + len(updated) + len(destroyed)
+
+        # Truncate since_state to 12 chars for token economy + privacy.
+        state_short = (since_state or "")[:12]
+        filtered_by = [f"since_state={state_short}", f"max_changes={max_changes}"]
+
+        redactions: list[str] = []
+        if changes.get("has_more_changes"):
+            redactions.append("more_changes_available")
+
+        # Surface new_state as next_cursor for forward sync.
+        new_state = changes.get("new_state")
+        next_cursor = new_state if new_state else None
+
+        meta = _format_meta_envelope(
+            matched_total=aggregate,
+            returned=aggregate,
+            filtered_by=filtered_by,
+            latency_ms=latency_ms,
+            redactions=redactions or None,
+            next_cursor=next_cursor,
+        )
+        return _append_meta(payload, meta)
     except CannotCalculateChangesError:
         return "Error: State too old — cannot calculate changes. Fall back to mail_search with after= date filter."
     except FastmailError as e:
@@ -502,8 +606,31 @@ async def masked_list(
     Masked emails are privacy aliases that forward to your real inbox.
     """
     try:
+        t0 = time.perf_counter()
         masks = await _run(_get_client().get_masked_emails, state=state, for_domain=for_domain, limit=limit)
-        return format_masked_email_list(masks, limit=limit)
+        latency_ms = int((time.perf_counter() - t0) * 1000)
+        payload = format_masked_email_list(masks, limit=limit)
+
+        # DD-338 Phase C — Track 3 _meta envelope.
+        # JMAP MaskedEmail/get has no native pagination, so matched_total
+        # tracks the upstream list length; ``returned`` reflects post-limit.
+        filtered_by: list[str] = []
+        if state:
+            filtered_by.append(f"state={state}")
+        if for_domain:
+            filtered_by.append(f"for_domain={for_domain}")
+        filtered_by.append(f"limit={limit}")
+
+        matched_total = len(masks)
+        returned = min(matched_total, limit) if limit and limit > 0 else matched_total
+
+        meta = _format_meta_envelope(
+            matched_total=matched_total,
+            returned=returned,
+            filtered_by=filtered_by,
+            latency_ms=latency_ms,
+        )
+        return _append_meta(payload, meta)
     except FastmailError as e:
         return _error_response(e)
     except Exception as e:
