@@ -479,23 +479,15 @@ class FastmailClient:
             identity_id=identity_id,
             email_id=email_id,
         )
-        sub_response = self._request(
-            EmailSubmissionSet(
-                create={"send": submission},
-                on_success_update_email={
-                    "#send": {
-                        "keywords/$draft": None,
-                        f"mailbox_ids/{self._get_sent_mailbox_id()}": True,
-                        f"mailbox_ids/{self._get_drafts_mailbox_id()}": None,
-                    }
-                },
-            )
-        )
+        sub_response = self._request(EmailSubmissionSet(create={"send": submission}))
         self._assert_set_success(sub_response, "submit email")
+        submission_id = "submitted"
         if sub_response.created and "send" in sub_response.created:
             created_sub = sub_response.created["send"]
-            return created_sub.id if created_sub else "submitted"
-        return "submitted"
+            submission_id = created_sub.id if created_sub else "submitted"
+
+        self._file_sent_copy(email_id)
+        return submission_id
 
     def reply_to_email(
         self,
@@ -558,35 +550,75 @@ class FastmailClient:
             identity_id=identity_id,
             email_id=reply_email_id,
         )
-        sub_response = self._request(
-            EmailSubmissionSet(
-                create={"send": submission},
-                on_success_update_email={
-                    "#send": {
-                        "keywords/$draft": None,
-                        f"mailbox_ids/{self._get_sent_mailbox_id()}": True,
-                        f"mailbox_ids/{self._get_drafts_mailbox_id()}": None,
-                    }
-                },
-            )
-        )
+        sub_response = self._request(EmailSubmissionSet(create={"send": submission}))
         self._assert_set_success(sub_response, "submit reply")
+        submission_id = "submitted"
         if sub_response.created and "send" in sub_response.created:
             created_sub = sub_response.created["send"]
-            return created_sub.id if created_sub else "submitted"
-        return "submitted"
+            submission_id = created_sub.id if created_sub else "submitted"
+
+        self._file_sent_copy(reply_email_id)
+        return submission_id
+
+    def _file_sent_copy(self, email_id: str) -> None:
+        """Move a just-submitted draft from Drafts to Sent and clear ``$draft``.
+
+        Done as a SEPARATE Email/set after submission — *not* via JMAP
+        ``onSuccessUpdateEmail``, which Fastmail rejects as ``invalidArguments``
+        (jmapc serialisation). Previously that rejection made every send raise
+        even though the email had already gone out — a dangerous false negative
+        that could provoke a re-send. The send has already succeeded by the time
+        we get here, so a failure to file the local copy is logged, never raised.
+        """
+        try:
+            self._request(
+                EmailSet(
+                    update={
+                        email_id: {
+                            "keywords/$draft": None,
+                            f"mailboxIds/{self._get_sent_mailbox_id()}": True,
+                            f"mailboxIds/{self._get_drafts_mailbox_id()}": None,
+                        }
+                    }
+                )
+            )
+        except FastmailError:
+            logger.warning(
+                "Email sent but filing the local copy Drafts->Sent failed (id=%s); the message was delivered.",
+                email_id,
+            )
 
     def move_emails(self, ids: list[str], to_mailbox: str, from_mailbox: str | None = None) -> int:
-        """Move emails to a mailbox. Returns count moved."""
+        """Move emails to a mailbox. Returns count moved.
+
+        A true move: the destination mailbox is added and *every* current
+        mailbox membership (other than the destination) is removed. JMAP
+        ``mailboxIds`` are additive, so adding the destination without clearing
+        the source(s) would leave the message visible in both — that is a copy,
+        not a move (and would make a "delete to Trash" leave the message in its
+        original folder). We read the current memberships first and null them.
+        """
         capped = ids[:MAX_BATCH_SIZE]
         if not capped:
             raise FastmailError("No email IDs provided")
         if not to_mailbox:
             raise FastmailError("to_mailbox is required")
+
+        # Read current memberships so the move removes the source mailbox(es).
+        current_response = self._request(EmailGet(ids=capped, properties=["mailboxIds"]))
+        current: dict[str, dict[str, bool]] = {
+            e.id: (e.mailbox_ids or {}) for e in (current_response.data or []) if e and e.id
+        }
+
         update: dict[str, dict[str, Any]] = {}
         for eid in capped:
             patch: dict[str, Any] = {f"mailboxIds/{to_mailbox}": True}
-            if from_mailbox:
+            # Null every existing membership except the destination.
+            for existing_mbox in current.get(eid, {}):
+                if existing_mbox != to_mailbox:
+                    patch[f"mailboxIds/{existing_mbox}"] = None
+            # Honour an explicit from_mailbox even if the read missed it.
+            if from_mailbox and from_mailbox != to_mailbox:
                 patch[f"mailboxIds/{from_mailbox}"] = None
             update[eid] = patch
 
@@ -660,9 +692,16 @@ class FastmailClient:
         self,
         state: str | None = None,
         for_domain: str | None = None,
-        limit: int = 20,
     ) -> list[MaskedEmail]:
-        """Get masked email addresses with optional filtering."""
+        """Get masked email addresses with optional filtering.
+
+        Returns the **full** filtered+sorted list — truncation is the caller's
+        responsibility (presentation layer). JMAP ``MaskedEmail/get`` has no
+        native pagination, so the only honest source of a total count is the
+        full filtered length; truncating here would make any ``matched_total``
+        derived downstream collapse to the display limit and silently hide that
+        more masks exist.
+        """
         response = self._request(MaskedEmailGet(ids=None))
         masks = list(response.data) if response.data else []
 
@@ -673,7 +712,7 @@ class FastmailClient:
             masks = [m for m in masks if m.for_domain and for_domain.lower() in m.for_domain.lower()]
 
         masks.sort(key=lambda m: m.created_at or datetime.min.replace(tzinfo=UTC), reverse=True)
-        return masks[:limit]
+        return masks
 
     def create_masked_email(
         self,

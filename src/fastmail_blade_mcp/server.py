@@ -628,13 +628,16 @@ async def masked_list(
     """
     try:
         t0 = time.perf_counter()
-        masks = await _run(_get_client().get_masked_emails, state=state, for_domain=for_domain, limit=limit)
+        # get_masked_emails returns the FULL filtered list; we slice for display
+        # here so matched_total reflects the true upstream count (the client no
+        # longer truncates — that would make matched_total collapse to limit).
+        masks = await _run(_get_client().get_masked_emails, state=state, for_domain=for_domain)
         latency_ms = int((time.perf_counter() - t0) * 1000)
         payload = format_masked_email_list(masks, limit=limit)
 
         # DD-338 Phase C — Track 3 _meta envelope.
         # JMAP MaskedEmail/get has no native pagination, so matched_total
-        # tracks the upstream list length; ``returned`` reflects post-limit.
+        # tracks the full filtered list length; ``returned`` reflects post-limit.
         filtered_by: list[str] = []
         if state:
             filtered_by.append(f"state={state}")

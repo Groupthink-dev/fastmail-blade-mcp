@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.5.0 — 2026-06-06
+
+### Fixed (DD-385 live-hardening — defects a mock suite passed straight through)
+
+- **`mail_send` / `mail_reply` reported failure while the email actually sent.**
+  The post-submit draft→Sent transition used JMAP `onSuccessUpdateEmail`, which
+  Fastmail rejects as `invalidArguments` (jmapc serialisation). The submission
+  succeeded, but jmapc raised — so the caller saw a generic error *after the
+  message had gone out*, and the sent copy was stranded in Drafts flagged
+  `$draft`. A false negative that could provoke a re-send. Now the send submits,
+  confirms success, then files the local copy Drafts→Sent as a **separate**
+  `Email/set`; a filing failure is logged, never raised (the email already sent).
+- **`mail_move` / `mail_delete` added the destination mailbox without removing
+  the source.** JMAP `mailboxIds` are additive, so "move" was a copy/label and
+  default "delete to Trash" left the message visible in its original folder
+  (e.g. still in Inbox). `move_emails` now reads current memberships and nulls
+  every source mailbox, making move a true move and delete-to-Trash land the
+  message *only* in Trash.
+- **`masked_list` `_meta.matched_total` was capped at `limit`** (the client
+  truncated before the count), always equalling `returned` and hiding that more
+  masks exist. Truncation moved to the presentation layer; `matched_total` now
+  reflects the full filtered count. `get_masked_emails` no longer takes `limit`.
+
+### Added
+
+- Live e2e regressions (`tests/e2e/test_e2e_write.py`) for the move/delete
+  semantics and send-actually-sends defects, plus a masked no-truncation check —
+  each fails against the unfixed code (DD-385 pattern).
+
 ## 0.4.0 — 2026-05-24
 
 ### Changed
