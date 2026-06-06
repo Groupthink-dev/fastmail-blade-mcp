@@ -114,6 +114,15 @@ _ERROR_PATTERNS: list[tuple[str, type[FastmailError]]] = [
     ("unreachable", ConnectionError),
 ]
 
+_JMAP_SET_ERROR_ATTRS = (
+    "not_created",
+    "not_updated",
+    "not_destroyed",
+    "not_created_ids",
+    "not_updated_ids",
+    "not_destroyed_ids",
+)
+
 
 def _classify_error(message: str) -> FastmailError:
     """Map error message to a typed exception."""
@@ -127,6 +136,31 @@ def _classify_error(message: str) -> FastmailError:
 def _scrub_token(text: str) -> str:
     """Remove API tokens from text to prevent leakage in logs/output."""
     return re.sub(r"fmu1-[a-zA-Z0-9]+", "fmu1-****", text)
+
+
+def _parse_jmap_datetime(value: str | None) -> datetime | None:
+    """Parse a user ISO date/datetime into a timezone-aware UTC datetime."""
+    if not value:
+        return None
+    normalized = value.strip()
+    if not normalized:
+        return None
+    if normalized.endswith("Z"):
+        normalized = f"{normalized[:-1]}+00:00"
+    try:
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError as e:
+        raise FastmailError(f"Invalid ISO 8601 datetime: {value}") from e
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
+
+
+def _clamp_limit(limit: int, *, default: int = 20, maximum: int = MAX_BATCH_SIZE) -> int:
+    """Keep API list limits bounded and positive."""
+    if limit <= 0:
+        return default
+    return min(limit, maximum)
 
 
 # ---------------------------------------------------------------------------
@@ -175,6 +209,18 @@ class FastmailClient:
         except Exception as e:
             msg = _scrub_token(str(e))
             raise _classify_error(msg) from e
+
+    def _assert_set_success(self, response: Any, action: str) -> None:
+        """Raise if a JMAP Set response contains per-id failures."""
+        failures: list[str] = []
+        for attr in _JMAP_SET_ERROR_ATTRS:
+            value = getattr(response, attr, None)
+            if type(value).__module__.startswith("unittest.mock"):
+                continue
+            if value:
+                failures.append(f"{attr}={value}")
+        if failures:
+            raise FastmailError(f"{action} failed: {_scrub_token('; '.join(failures))}")
 
     # -------------------------------------------------------------------
     # Meta
@@ -243,8 +289,8 @@ class FastmailClient:
             to=to_addr,
             header=["Subject", subject] if subject else None,
             body=body,
-            after=datetime.fromisoformat(after).replace(tzinfo=UTC) if after else None,
-            before=datetime.fromisoformat(before).replace(tzinfo=UTC) if before else None,
+            after=_parse_jmap_datetime(after),
+            before=_parse_jmap_datetime(before),
             in_mailbox=in_mailbox,
             has_keyword=has_keyword,
             not_keyword=not_keyword,
@@ -253,7 +299,7 @@ class FastmailClient:
             EmailQuery(
                 filter=filter_condition,
                 sort=[Comparator(property="receivedAt", is_ascending=False)],
-                limit=limit,
+                limit=_clamp_limit(limit),
                 calculate_total=True,
             )
         )
@@ -308,15 +354,15 @@ class FastmailClient:
             mail_from=from_addr,
             header=["Subject", subject] if subject else None,
             body=body,
-            after=datetime.fromisoformat(after).replace(tzinfo=UTC) if after else None,
-            before=datetime.fromisoformat(before).replace(tzinfo=UTC) if before else None,
+            after=_parse_jmap_datetime(after),
+            before=_parse_jmap_datetime(before),
             in_mailbox=in_mailbox,
         )
         query_response = self._request(
             EmailQuery(
                 filter=filter_condition,
                 sort=[Comparator(property="receivedAt", is_ascending=False)],
-                limit=limit,
+                limit=_clamp_limit(limit),
                 calculate_total=True,
             )
         )
@@ -421,6 +467,7 @@ class FastmailClient:
         )
 
         create_response = self._request(EmailSet(create={"draft": draft}))
+        self._assert_set_success(create_response, "create draft")
         if not create_response.created or "draft" not in create_response.created:
             raise FastmailError("Failed to create draft email")
         created_email = create_response.created["draft"]
@@ -444,6 +491,7 @@ class FastmailClient:
                 },
             )
         )
+        self._assert_set_success(sub_response, "submit email")
         if sub_response.created and "send" in sub_response.created:
             created_sub = sub_response.created["send"]
             return created_sub.id if created_sub else "submitted"
@@ -498,6 +546,7 @@ class FastmailClient:
         )
 
         create_response = self._request(EmailSet(create={"reply": draft}))
+        self._assert_set_success(create_response, "create reply draft")
         if not create_response.created or "reply" not in create_response.created:
             raise FastmailError("Failed to create reply draft")
         created_email = create_response.created["reply"]
@@ -521,6 +570,7 @@ class FastmailClient:
                 },
             )
         )
+        self._assert_set_success(sub_response, "submit reply")
         if sub_response.created and "send" in sub_response.created:
             created_sub = sub_response.created["send"]
             return created_sub.id if created_sub else "submitted"
@@ -528,26 +578,38 @@ class FastmailClient:
 
     def move_emails(self, ids: list[str], to_mailbox: str, from_mailbox: str | None = None) -> int:
         """Move emails to a mailbox. Returns count moved."""
+        capped = ids[:MAX_BATCH_SIZE]
+        if not capped:
+            raise FastmailError("No email IDs provided")
+        if not to_mailbox:
+            raise FastmailError("to_mailbox is required")
         update: dict[str, dict[str, Any]] = {}
-        for eid in ids[:MAX_BATCH_SIZE]:
+        for eid in capped:
             patch: dict[str, Any] = {f"mailboxIds/{to_mailbox}": True}
             if from_mailbox:
                 patch[f"mailboxIds/{from_mailbox}"] = None
             update[eid] = patch
 
-        self._request(EmailSet(update=update))
+        response = self._request(EmailSet(update=update))
+        self._assert_set_success(response, "move emails")
         return len(update)
 
     def flag_emails(self, ids: list[str], keyword: str = "$flagged", clear: bool = False) -> int:
         """Flag or unflag emails. Returns count affected."""
+        capped = ids[:MAX_BATCH_SIZE]
+        if not capped:
+            raise FastmailError("No email IDs provided")
+        if not keyword:
+            raise FastmailError("keyword is required")
         update: dict[str, dict[str, Any]] = {}
-        for eid in ids[:MAX_BATCH_SIZE]:
+        for eid in capped:
             if clear:
                 update[eid] = {f"keywords/{keyword}": None}
             else:
                 update[eid] = {f"keywords/{keyword}": True}
 
-        self._request(EmailSet(update=update))
+        response = self._request(EmailSet(update=update))
+        self._assert_set_success(response, "update keywords")
         return len(update)
 
     # -------------------------------------------------------------------
@@ -556,9 +618,13 @@ class FastmailClient:
 
     def delete_emails(self, ids: list[str], permanent: bool = False) -> int:
         """Delete emails. Moves to Trash by default, permanent destroys."""
+        capped = ids[:MAX_BATCH_SIZE]
+        if not capped:
+            raise FastmailError("No email IDs provided")
         if permanent:
-            self._request(EmailSet(destroy=ids[:MAX_BATCH_SIZE]))
-            return min(len(ids), MAX_BATCH_SIZE)
+            response = self._request(EmailSet(destroy=capped))
+            self._assert_set_success(response, "delete emails")
+            return len(capped)
         return self.move_emails(ids, self._get_trash_mailbox_id())
 
     def bulk_action(
@@ -625,6 +691,7 @@ class FastmailClient:
             mask.email_prefix = email_prefix
 
         response = self._request(MaskedEmailSet(create={"new": mask}))
+        self._assert_set_success(response, "create masked email")
         if response.created and "new" in response.created:
             created: MaskedEmail | None = response.created["new"]
             if created is not None:
@@ -650,7 +717,8 @@ class FastmailClient:
         if not patch:
             raise FastmailError("No fields to update")
 
-        self._request(MaskedEmailSet(update={mask_id: patch}))
+        response = self._request(MaskedEmailSet(update={mask_id: patch}))
+        self._assert_set_success(response, "update masked email")
         return {"id": mask_id, **patch}
 
     # -------------------------------------------------------------------

@@ -12,7 +12,7 @@
     "FASTMAIL_MCP_TRANSPORT": "stdio|http (default: stdio)",
     "FASTMAIL_MCP_HOST": "HTTP bind host (default: 127.0.0.1)",
     "FASTMAIL_MCP_PORT": "HTTP bind port (default: 8767)",
-    "FASTMAIL_MCP_API_TOKEN": "Bearer token for HTTP auth (disabled if empty)"
+    "FASTMAIL_MCP_API_TOKEN": "Bearer token for HTTP auth (required for non-loopback HTTP binds)"
   },
   "tools": [
     "fastmail_info",

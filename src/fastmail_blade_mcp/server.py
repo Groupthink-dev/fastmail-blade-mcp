@@ -80,6 +80,11 @@ async def _run(fn: Any, *args: Any, **kwargs: Any) -> Any:
     return await asyncio.to_thread(fn, *args, **kwargs)
 
 
+def _parse_csv(value: str) -> list[str]:
+    """Parse comma-separated tool input and drop empty items."""
+    return [item.strip() for item in value.split(",") if item.strip()]
+
+
 # ===========================================================================
 # META TOOLS
 # ===========================================================================
@@ -432,10 +437,12 @@ async def mail_send(
     if err := require_write():
         return err
     try:
-        to_list = [addr.strip() for addr in to.split(",") if addr.strip()]
-        cc_list = [addr.strip() for addr in cc.split(",") if addr.strip()] if cc else None
-        bcc_list = [addr.strip() for addr in bcc.split(",") if addr.strip()] if bcc else None
-        logger.info("mail_send: to=%s, subject=%s", to_list, subject[:50])
+        to_list = _parse_csv(to)
+        if not to_list:
+            return "Error: at least one recipient is required"
+        cc_list = _parse_csv(cc) if cc else None
+        bcc_list = _parse_csv(bcc) if bcc else None
+        logger.info("mail_send: recipients=%d, subject_len=%d", len(to_list), len(subject))
         submission_id = await _run(
             _get_client().send_email,
             to=to_list,
@@ -467,7 +474,9 @@ async def mail_reply(
     if err := require_write():
         return err
     try:
-        logger.info("mail_reply: id=%s, reply_all=%s", id, reply_all)
+        if not id.strip():
+            return "Error: id is required"
+        logger.info("mail_reply: reply_all=%s", reply_all)
         submission_id = await _run(
             _get_client().reply_to_email,
             email_id=id,
@@ -496,8 +505,12 @@ async def mail_move(
     if err := require_write():
         return err
     try:
-        id_list = [eid.strip() for eid in ids.split(",") if eid.strip()]
-        logger.info("mail_move: %d emails to %s", len(id_list), to_mailbox)
+        id_list = _parse_csv(ids)
+        if not id_list:
+            return "Error: at least one email ID is required"
+        if not to_mailbox.strip():
+            return "Error: to_mailbox is required"
+        logger.info("mail_move: count=%d", len(id_list))
         count = await _run(_get_client().move_emails, id_list, to_mailbox, from_mailbox)
         return f"Moved {count} email(s)."
     except FastmailError as e:
@@ -520,9 +533,13 @@ async def mail_flag(
     if err := require_write():
         return err
     try:
-        id_list = [eid.strip() for eid in ids.split(",") if eid.strip()]
+        id_list = _parse_csv(ids)
+        if not id_list:
+            return "Error: at least one email ID is required"
+        if not keyword.strip():
+            return "Error: keyword is required"
         action = "Cleared" if clear else "Set"
-        logger.info("mail_flag: %s %s on %d emails", action.lower(), keyword, len(id_list))
+        logger.info("mail_flag: action=%s count=%d", action.lower(), len(id_list))
         count = await _run(_get_client().flag_emails, id_list, keyword, clear)
         return f"{action} '{keyword}' on {count} email(s)."
     except FastmailError as e:
@@ -549,7 +566,9 @@ async def mail_delete(
     if err := require_write():
         return err
     try:
-        id_list = [eid.strip() for eid in ids.split(",") if eid.strip()]
+        id_list = _parse_csv(ids)
+        if not id_list:
+            return "Error: at least one email ID is required"
         action = "Permanently deleted" if permanent else "Moved to Trash"
         logger.info("mail_delete: %d emails, permanent=%s", len(id_list), permanent)
         count = await _run(_get_client().delete_emails, id_list, permanent)
@@ -577,7 +596,9 @@ async def mail_bulk(
     if err := require_write():
         return err
     try:
-        id_list = [eid.strip() for eid in ids.split(",") if eid.strip()]
+        id_list = _parse_csv(ids)
+        if not id_list:
+            return "Error: at least one email ID is required"
         if len(id_list) > MAX_BATCH_SIZE:
             return f"Error: Maximum {MAX_BATCH_SIZE} emails per bulk operation. Got {len(id_list)}."
         logger.info("mail_bulk: %s on %d emails", action, len(id_list))
@@ -738,8 +759,9 @@ def main() -> None:
     if TRANSPORT == "http":
         from starlette.middleware import Middleware
 
-        from fastmail_blade_mcp.auth import BearerAuthMiddleware, get_bearer_token
+        from fastmail_blade_mcp.auth import BearerAuthMiddleware, get_bearer_token, require_secure_http
 
+        require_secure_http(HTTP_HOST)
         bearer = get_bearer_token()
         logger.info("Starting HTTP transport on %s:%s", HTTP_HOST, HTTP_PORT)
         if bearer:

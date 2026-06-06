@@ -3,8 +3,8 @@
 Bearer token auth for remote/tunnel access. Set ``FASTMAIL_MCP_API_TOKEN`` env var.
 Every HTTP request must include ``Authorization: Bearer <token>``.
 
-If the env var is **unset or empty**, bearer auth is disabled — this keeps
-localhost-only setups working without any configuration.
+If the env var is **unset or empty**, bearer auth is disabled only for
+localhost-only setups. Non-loopback HTTP binds must configure a bearer token.
 """
 
 from __future__ import annotations
@@ -13,6 +13,7 @@ import json
 import logging
 import os
 import secrets
+from ipaddress import ip_address
 
 from starlette.types import ASGIApp, Receive, Scope, Send
 
@@ -31,6 +32,27 @@ def get_bearer_token() -> str | None:
     token = os.environ.get("FASTMAIL_MCP_API_TOKEN", "").strip()
     _BEARER_TOKEN = token if token else None
     return _BEARER_TOKEN
+
+
+def is_loopback_host(host: str) -> bool:
+    """Return true for localhost/loopback bind hosts."""
+    normalized = host.strip().lower()
+    if normalized in {"localhost", "127.0.0.1", "::1"}:
+        return True
+    try:
+        return ip_address(normalized).is_loopback
+    except ValueError:
+        return False
+
+
+def require_secure_http(host: str) -> None:
+    """Refuse remote HTTP transport unless bearer auth is configured."""
+    if is_loopback_host(host):
+        return
+    if get_bearer_token() is None:
+        raise RuntimeError(
+            "FASTMAIL_MCP_API_TOKEN is required when FASTMAIL_MCP_TRANSPORT=http binds to a non-loopback host"
+        )
 
 
 class BearerAuthMiddleware:

@@ -215,6 +215,14 @@ class TestMailSend:
             assert "Sent" in result
             assert "sub-001" in result
 
+    async def test_rejects_empty_recipients(self, mock_client):
+        from fastmail_blade_mcp.server import mail_send
+
+        with patch.dict("os.environ", {"FASTMAIL_WRITE_ENABLED": "true"}):
+            result = await mail_send(to=" , ", subject="Test", body="Hello")
+            assert "recipient" in result
+            mock_client.send_email.assert_not_called()
+
 
 class TestMailReply:
     async def test_write_disabled(self, mock_client):
@@ -248,6 +256,14 @@ class TestMailMove:
             mock_client.move_emails.return_value = 1
             result = await mail_move(ids="M001", to_mailbox="mb-trash")
             assert "Moved 1" in result
+
+    async def test_rejects_empty_ids(self, mock_client):
+        from fastmail_blade_mcp.server import mail_move
+
+        with patch.dict("os.environ", {"FASTMAIL_WRITE_ENABLED": "true"}):
+            result = await mail_move(ids=" , ", to_mailbox="mb-trash")
+            assert "email ID" in result
+            mock_client.move_emails.assert_not_called()
 
 
 class TestMailFlag:

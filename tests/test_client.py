@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -94,6 +95,18 @@ class TestSearchEmails:
         assert len(emails) == 0
         assert total == 0
 
+    def test_search_preserves_aware_datetime_offset(self, client, mock_jmapc_client):
+        from fastmail_blade_mcp.client import _parse_jmap_datetime
+
+        parsed = _parse_jmap_datetime("2026-03-01T10:00:00+11:00")
+        assert parsed == datetime(2026, 2, 28, 23, 0, tzinfo=UTC)
+
+    def test_search_rejects_invalid_datetime(self, client):
+        from fastmail_blade_mcp.client import FastmailError
+
+        with pytest.raises(FastmailError, match="Invalid ISO 8601"):
+            client.search_emails(after="not-a-date")
+
 
 class TestGetThread:
     def test_get_thread(self, client, mock_jmapc_client, sample_thread, sample_thread_obj):
@@ -171,6 +184,34 @@ class TestMaskedEmails:
 
         result = client.create_masked_email(for_domain="test.com", description="Test")
         assert result.email == "new123@fastmail.com"
+
+
+class TestWriteSetResponses:
+    def test_move_emails_surfaces_not_updated(self, client, mock_jmapc_client):
+        from fastmail_blade_mcp.client import FastmailError
+
+        mock_response = MagicMock()
+        mock_response.not_updated = {"M001": {"type": "notFound"}}
+        mock_jmapc_client.request.return_value = mock_response
+
+        with pytest.raises(FastmailError, match="not_updated"):
+            client.move_emails(["M001"], "mb-trash")
+
+    def test_permanent_delete_surfaces_not_destroyed(self, client, mock_jmapc_client):
+        from fastmail_blade_mcp.client import FastmailError
+
+        mock_response = MagicMock()
+        mock_response.not_destroyed = {"M001": {"type": "forbidden"}}
+        mock_jmapc_client.request.return_value = mock_response
+
+        with pytest.raises(FastmailError, match="not_destroyed"):
+            client.delete_emails(["M001"], permanent=True)
+
+    def test_move_emails_rejects_empty_ids(self, client):
+        from fastmail_blade_mcp.client import FastmailError
+
+        with pytest.raises(FastmailError, match="No email IDs"):
+            client.move_emails([], "mb-trash")
 
 
 class TestEmailState:
