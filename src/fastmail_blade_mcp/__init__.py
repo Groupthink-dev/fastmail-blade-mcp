@@ -1,3 +1,3 @@
 """Fastmail JMAP MCP Server — email, masked email, and push notifications."""
 
-__version__ = "0.4.0"
+__version__ = "0.5.0"
