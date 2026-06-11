@@ -74,13 +74,13 @@ fastmail_info                                 → Health check
 - **mail_flag** — Set/clear keywords. Common: `$flagged`, `$seen`, `$answered`.
 
 ### Email Manage (requires FASTMAIL_WRITE_ENABLED=true)
-- **mail_delete** — Move to Trash (default) or permanently destroy.
+- **mail_delete** — Move to Trash (default) or permanently destroy (permanent=true also requires confirm=true).
 - **mail_bulk** — Bulk action on up to 50 emails. Actions: mark_read, mark_unread, flag, unflag, move, delete.
 
 ### Masked Email
 - **masked_list** — List masked aliases with state, domain, description. Filter by state/domain.
 - **masked_create** — Create new alias for a domain. Requires write enabled.
-- **masked_update** — Change state (enabled/disabled/deleted) or description. Requires write enabled.
+- **masked_update** — Change state (enabled/disabled/deleted) or description. Requires write enabled; state=deleted also requires confirm=true.
 
 ### Push Notifications
 - **push_subscribe** — Listen for state changes via EventSource. Bounded timeout (default 60s, max 300s).

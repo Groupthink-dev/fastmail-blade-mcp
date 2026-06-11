@@ -1,6 +1,6 @@
 [project]
 name = "fastmail-blade-mcp"
-version = "0.5.0"
+version = "0.6.0"
 description = "Fastmail JMAP MCP Server — email, masked email, and push notifications"
 readme = "README.md"
 license = {text = "MIT"}

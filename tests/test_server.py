@@ -313,13 +313,30 @@ class TestMailDelete:
             result = await mail_delete(ids="M001")
             assert "Trash" in result
 
-    async def test_permanent_delete(self, mock_client):
+    async def test_permanent_delete_refused_without_confirm(self, mock_client):
+        from fastmail_blade_mcp.server import mail_delete
+
+        with patch.dict("os.environ", {"FASTMAIL_WRITE_ENABLED": "true"}):
+            result = await mail_delete(ids="M001", permanent=True)
+            assert "Error: Set confirm=true" in result
+            mock_client.delete_emails.assert_not_called()
+
+    async def test_permanent_delete_with_confirm(self, mock_client):
         from fastmail_blade_mcp.server import mail_delete
 
         with patch.dict("os.environ", {"FASTMAIL_WRITE_ENABLED": "true"}):
             mock_client.delete_emails.return_value = 1
-            result = await mail_delete(ids="M001", permanent=True)
+            result = await mail_delete(ids="M001", permanent=True, confirm=True)
             assert "Permanently" in result
+
+    async def test_trash_move_unaffected_by_confirm_gate(self, mock_client):
+        from fastmail_blade_mcp.server import mail_delete
+
+        with patch.dict("os.environ", {"FASTMAIL_WRITE_ENABLED": "true"}):
+            mock_client.delete_emails.return_value = 1
+            result = await mail_delete(ids="M001")
+            assert "Trash" in result
+            mock_client.delete_emails.assert_called_once()
 
 
 class TestMailBulk:
@@ -337,6 +354,17 @@ class TestMailBulk:
             mock_client.bulk_action.return_value = 2
             result = await mail_bulk(ids="M001,M002", action="mark_read")
             assert "2" in result
+
+    async def test_bulk_delete_is_trash_move_and_ungated(self, mock_client):
+        # AUD-04-15: mail_bulk delete routes to client.delete_emails(permanent=False)
+        # (trash-move, reversible) — deliberately NOT behind the confirm gate.
+        from fastmail_blade_mcp.server import mail_bulk
+
+        with patch.dict("os.environ", {"FASTMAIL_WRITE_ENABLED": "true"}):
+            mock_client.bulk_action.return_value = 2
+            result = await mail_bulk(ids="M001,M002", action="delete")
+            assert "Bulk delete" in result
+            mock_client.bulk_action.assert_called_once_with(["M001", "M002"], "delete", None)
 
     async def test_batch_limit(self, mock_client):
         from fastmail_blade_mcp.server import mail_bulk
@@ -398,6 +426,31 @@ class TestMaskedUpdate:
             mock_client.update_masked_email.return_value = {"id": "me-001", "state": "disabled"}
             result = await masked_update(id="me-001", state="disabled")
             assert "Updated" in result
+
+    async def test_delete_refused_without_confirm(self, mock_client):
+        from fastmail_blade_mcp.server import masked_update
+
+        with patch.dict("os.environ", {"FASTMAIL_WRITE_ENABLED": "true"}):
+            result = await masked_update(id="me-001", state="deleted")
+            assert "Error: Set confirm=true" in result
+            mock_client.update_masked_email.assert_not_called()
+
+    async def test_delete_with_confirm(self, mock_client):
+        from fastmail_blade_mcp.server import masked_update
+
+        with patch.dict("os.environ", {"FASTMAIL_WRITE_ENABLED": "true"}):
+            mock_client.update_masked_email.return_value = {"id": "me-001", "state": "deleted"}
+            result = await masked_update(id="me-001", state="deleted", confirm=True)
+            assert "Updated" in result
+
+    async def test_non_delete_update_unaffected_by_confirm_gate(self, mock_client):
+        from fastmail_blade_mcp.server import masked_update
+
+        with patch.dict("os.environ", {"FASTMAIL_WRITE_ENABLED": "true"}):
+            mock_client.update_masked_email.return_value = {"id": "me-001", "description": "x"}
+            result = await masked_update(id="me-001", description="x")
+            assert "Updated" in result
+            mock_client.update_masked_email.assert_called_once()
 
 
 # ===========================================================================

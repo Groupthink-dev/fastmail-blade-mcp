@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.6.0 — 2026-06-11
+
+### Added (AUD-04-15 — DD-385 Phase W wave 2)
+
+- **`confirm=true` gate on the irreversible destroy paths.** `mail_delete` with
+  `permanent=true` and `masked_update` with `state="deleted"` now refuse with a
+  structured `Error: Set confirm=true ...` message unless `confirm=true` is
+  passed (mirrors the caldav-blade / apple-reminders-blade pattern). The blanket
+  `FASTMAIL_WRITE_ENABLED` env gate alone no longer stands between the model and
+  permanent destruction of up to 50 emails.
+- `mail_bulk(action="delete")` is deliberately **not** gated: it routes to
+  `delete_emails(permanent=False)` — a reversible trash-move, never a JMAP
+  `Email/set destroy`. Documented in the tool docstring and pinned by a
+  regression test.
+- Non-destructive paths (trash-move delete, masked disable/describe, all other
+  bulk actions) are behaviourally unchanged.
+
 ## 0.5.0 — 2026-06-06
 
 ### Fixed (DD-385 live-hardening — defects a mock suite passed straight through)

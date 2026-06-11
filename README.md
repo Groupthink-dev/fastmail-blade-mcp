@@ -101,7 +101,7 @@ claude mcp add fastmail-blade -- uv run --directory ~/src/fastmail-blade-mcp fas
 
 | Tool | Description |
 |------|-------------|
-| `mail_delete` | Move to Trash (default) or permanently destroy |
+| `mail_delete` | Move to Trash (default); permanent destroy requires `confirm=true` |
 | `mail_bulk` | Bulk action on up to 50 emails |
 
 ### Masked Email (3)
@@ -110,7 +110,7 @@ claude mcp add fastmail-blade -- uv run --directory ~/src/fastmail-blade-mcp fas
 |------|-------------|
 | `masked_list` | List aliases with state, domain, description |
 | `masked_create` | Create new masked alias (gated) |
-| `masked_update` | Update state/description (gated) |
+| `masked_update` | Update state/description (gated; `state=deleted` requires `confirm=true`) |
 
 ### Push (2)
 

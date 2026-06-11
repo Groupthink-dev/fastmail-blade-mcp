@@ -558,10 +558,12 @@ async def mail_flag(
 async def mail_delete(
     ids: Annotated[str, Field(description="Email ID(s), comma-separated")],
     permanent: Annotated[bool, Field(description="Permanently delete (default: move to Trash)")] = False,
+    confirm: Annotated[bool, Field(description="Must be true to confirm permanent deletion")] = False,
 ) -> str:
     """Delete emails. Moves to Trash by default. Requires FASTMAIL_WRITE_ENABLED=true.
 
-    Use ``permanent=true`` to permanently destroy — cannot be undone.
+    Use ``permanent=true`` to permanently destroy — cannot be undone and
+    additionally requires ``confirm=true``.
     """
     if err := require_write():
         return err
@@ -569,6 +571,8 @@ async def mail_delete(
         id_list = _parse_csv(ids)
         if not id_list:
             return "Error: at least one email ID is required"
+        if permanent and not confirm:
+            return "Error: Set confirm=true to confirm permanent deletion. This action cannot be undone."
         action = "Permanently deleted" if permanent else "Moved to Trash"
         logger.info("mail_delete: %d emails, permanent=%s", len(id_list), permanent)
         count = await _run(_get_client().delete_emails, id_list, permanent)
@@ -592,6 +596,7 @@ async def mail_bulk(
     """Bulk action on emails. Capped at 50. Requires FASTMAIL_WRITE_ENABLED=true.
 
     Actions: ``mark_read``, ``mark_unread``, ``flag``, ``unflag``, ``move``, ``delete``.
+    ``delete`` moves to Trash (reversible — permanent destroy is only via ``mail_delete``).
     """
     if err := require_write():
         return err
@@ -693,14 +698,18 @@ async def masked_update(
     state: Annotated[str | None, Field(description="New state: enabled, disabled, deleted")] = None,
     description: Annotated[str | None, Field(description="New description")] = None,
     for_domain: Annotated[str | None, Field(description="New domain")] = None,
+    confirm: Annotated[bool, Field(description="Must be true to confirm state=deleted")] = False,
 ) -> str:
     """Update a masked email alias. Requires FASTMAIL_WRITE_ENABLED=true.
 
-    Use ``state=disabled`` to stop forwarding, ``state=deleted`` to remove.
+    Use ``state=disabled`` to stop forwarding, ``state=deleted`` to remove —
+    deletion additionally requires ``confirm=true``.
     """
     if err := require_write():
         return err
     try:
+        if state == "deleted" and not confirm:
+            return "Error: Set confirm=true to confirm deletion of this masked email alias."
         logger.info("masked_update: id=%s", id)
         result = await _run(_get_client().update_masked_email, id, state, description, for_domain)
         return f"Updated: {result}"
