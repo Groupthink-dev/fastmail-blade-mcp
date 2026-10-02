@@ -39,6 +39,8 @@ steps:
     environment:
       UV_CACHE_DIR: /woodpecker/.uv-cache
       UV_PYTHON_DOWNLOADS: never
+      # Wins over a repo `.python-version` (four blades pin 3.12): the lane runs the estate 3.13 image.
+      UV_PYTHON: "3.13"
     commands:
       - python --version
       - pip install --quiet --disable-pip-version-check uv
